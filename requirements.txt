@@ -1,12 +1,12 @@
-phidata
 streamlit
-youtube_transcript_api
+yt-dlp
+youtube-transcript-api
 pytube
 openai
 groq
 langchain
-python-dotenv==1.0.0
-langchain
 langchain-groq
+python-dotenv==1.0.0
 deep-translator
-fpdf
+fpdf2
+phidata
