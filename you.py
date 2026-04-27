@@ -1,161 +1,553 @@
 import streamlit as st
-from langchain_community.chat_models import ChatOpenAI  # Updated import
-from langchain_community.llms import OpenAI  # Updated import
-from langchain.schema import HumanMessage, SystemMessage, AIMessage
-from dotenv import load_dotenv
 import os
+import tempfile
+from dotenv import load_dotenv
 from langchain_groq import ChatGroq
-from pytube import YouTube
 from deep_translator import GoogleTranslator
 from fpdf import FPDF
-import tempfile
 import yt_dlp
 
-# Load environment variables
+from youtube_transcript_api import YouTubeTranscriptApi
+# import yt_dlp
+import re
+
+# ==================================================
+# PAGE CONFIG
+# ==================================================
+st.set_page_config(
+    page_title="YouTube Chatbot",
+    page_icon="🎥",
+    layout="centered"
+)
+
+# ==================================================
+# LOAD ENV
+# ==================================================
 load_dotenv()
 groq_api_key = os.getenv("GROQ_API_KEY")
 
-# Initialize the ChatGroq model
+# ==================================================
+# MODEL
+# ==================================================
 model = ChatGroq(
-    model="Gemma2-9b-It",  # Use the model of your choice
-    groq_api_key=groq_api_key  # Only the Groq API key is required here
+    model="llama-3.3-70b-versatile",
+    groq_api_key=groq_api_key,
+    temperature=0.3
 )
 
-# Streamlit UI configuration
-st.set_page_config(page_title="YouTube Video Summary Chatbot")
-st.header("👋👋 I am your chatbot 💬, Paste a YouTube link to get a summary ❓ ")
+# ==================================================
+# CUSTOM CSS
+# ==================================================
+st.markdown("""
+<style>
 
-# Initialize session state for messages if it doesn't exist
-if 'mymessages' not in st.session_state:
-    st.session_state['mymessages'] = [
-        SystemMessage(content="You are a chatbot that summarizes YouTube videos.")
-    ]
-
-# Available languages for translation
-LANGUAGES = {
-    'English': 'en',
-    'Spanish': 'es',
-    'French': 'fr',
-    'German': 'de',
-    'Italian': 'it',
-    'Portuguese': 'pt',
-    'Russian': 'ru',
-    'Japanese': 'ja',
-    'Korean': 'ko',
-    'Chinese': 'zh',
-    'Hindi': 'hi'
+/* APP */
+.stApp{
+    background:#0f172a;
+    color:white;
 }
 
+/* MOBILE CENTER */
+.block-container{
+    max-width:430px;
+    margin:auto;
+    padding-top:10px;
+    padding-bottom:110px;
+}
 
-def extract_video_info(video_url):
+/* Hide Streamlit */
+footer {visibility:hidden;}
+#MainMenu {visibility:hidden;}
+
+/* Title */
+h1,h2,h3{
+    text-align:center;
+    color:white;
+}
+
+/* Inputs */
+.stTextInput input{
+    background:#1e293b;
+    color:white;
+    border:1px solid #334155;
+    border-radius:18px;
+    padding:14px;
+}
+
+/* Buttons */
+.stButton button{
+    width:100%;
+    height:46px;
+    border:none;
+    border-radius:18px;
+    background:linear-gradient(90deg,#2563eb,#7c3aed);
+    color:white;
+    font-weight:600;
+}
+
+/* Chat bubbles */
+.user-box{
+    background:#2563eb;
+    color:white;
+    padding:12px 14px;
+    border-radius:18px 18px 4px 18px;
+    margin:8px 0;
+    width:fit-content;
+    max-width:85%;
+    margin-left:auto;
+}
+
+.bot-box{
+    background:#1e293b;
+    color:white;
+    padding:12px 14px;
+    border-radius:18px 18px 18px 4px;
+    margin:8px 0;
+    width:fit-content;
+    max-width:85%;
+}
+
+/* Sidebar */
+section[data-testid="stSidebar"]{
+    background:#111827;
+}
+
+/* Chat input full width same as Generate Summary button */
+[data-testid="stChatInput"]{
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 430px;   /* same as main container */
+    background: #0f172a;
+    padding: 12px;
+    border-top: 1px solid #334155;
+    z-index: 999;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px){
+[data-testid="stChatInput"]{
+    max-width: 100%;
+    left: 0;
+    transform: none;
+}
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+# ==================================================
+# FUNCTIONS
+# ==================================================
+from youtube_transcript_api import YouTubeTranscriptApi
+import yt_dlp
+import re
+
+
+def get_video_id(url):
+    patterns = [
+        r"v=([^&]+)",
+        r"youtu\.be/([^?&]+)",
+        r"shorts/([^?&]+)"
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+
+    return None
+
+
+def extract_video_info(url):
     try:
         ydl_opts = {
-            'quiet': True,
-            'extract_flat': True,  # Don't download, just extract metadata
+            "quiet": True,
+            "extract_flat": False,
+            "skip_download": True
         }
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(video_url, download=False)
-            title = info_dict.get('title', 'No Title')
-            description = info_dict.get('description', 'No Description')
-            return f"Title: {title}\nDescription: {description}"
-    except Exception as e:
-        return f"Error extracting video info: {str(e)}"
+            info = ydl.extract_info(url, download=False)
 
-def translate_text(text, target_lang):
+        title = info.get("title", "")
+        description = info.get("description", "")
+        channel = info.get("uploader", "")
+        duration = info.get("duration_string", "")
+        views = info.get("view_count", "")
+        upload_date = info.get("upload_date", "")
+        tags = info.get("tags", [])
+
+        # ===== GET TRANSCRIPT =====
+        transcript_text = ""
+        video_id = get_video_id(url)
+
+        if video_id:
+            try:
+                transcript = YouTubeTranscriptApi.get_transcript(video_id)
+
+                transcript_text = " ".join(
+                    [item["text"] for item in transcript]
+                )
+
+            except:
+                transcript_text = "Transcript not available."
+
+        data = f"""
+Title: {title}
+
+Channel: {channel}
+
+Duration: {duration}
+
+Views: {views}
+
+Upload Date: {upload_date}
+
+Tags: {', '.join(tags[:15])}
+
+Description:
+{description}
+
+Transcript:
+{transcript_text}
+"""
+        return data
+
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+def summarize_video(video_text):
+    prompt = f"""
+You are an expert teacher, examiner, and educational content writer.
+
+Convert the given YouTube video topic/content into PROFESSIONAL STUDY NOTES with BEAUTIFUL formatting.
+
+Video Content:
+{video_text}
+
+Instructions:
+- If transcript exists, use it fully.
+- If transcript not available, infer intelligently from topic/title.
+- Use simple language.
+- Make content detailed, exam-ready, and professional.
+- VERY IMPORTANT: Questions and answers must be on separate lines.
+- Never write question and answer in same line.
+- Use proper spacing.
+- Use markdown formatting.
+
+Use this exact format:
+
+# 1. Chapter / Topic Introduction
+(Paragraph explanation)
+
+# 2. Full Detailed Notes
+(Headings + subheadings + bullet points)
+
+# 3. Important Definitions
+- Term:
+  Definition:
+
+# 4. Important Points for Exam
+- Point 1
+- Point 2
+
+# 5. Short Questions with Answers
+
+## Q1. What is ...?
+**Answer:**
+(write answer below)
+
+## Q2. Who is ...?
+**Answer:**
+(write answer below)
+
+(Create minimum 5)
+
+# 6. Long Questions with Answers
+
+## Q1. Explain ...
+**Answer:**
+(detailed answer below)
+
+(Create minimum 5)
+
+# 7. Multiple Choice Questions (MCQs)
+
+## Q1. ....
+a) ...
+b) ...
+c) ...
+d) ...
+
+**Correct Answer:** b)
+
+(Create minimum 10)
+
+# 8. True / False
+
+1. Statement here  
+**Answer:** True
+
+(Create minimum 5)
+
+# 9. One Word Answers
+
+1. Question:
+**Answer:** ....
+
+(Create minimum 5)
+
+# 10. Revision Summary
+(Bullets)
+
+# 11. Real Life Importance / Applications
+(Paragraph)
+
+# 12. Final Conclusion
+(Paragraph)
+
+Rules:
+- Separate every question and answer clearly.
+- Use headings.
+- Add spacing between sections.
+- Make UI look clean when shown in Streamlit.
+- No one-line mixed answers.
+
+Now generate professional formatted output.
+"""
+    response = model.invoke(prompt)
+    return response.content
+
+
+def answer_question(video_text, summary, question):
+    prompt = f"""
+You are an expert assistant answering questions about a YouTube video.
+
+Use ONLY the provided video transcript, metadata, and summary.
+
+VIDEO CONTENT:
+{video_text}
+
+VIDEO SUMMARY:
+{summary}
+
+USER QUESTION:
+{question}
+
+Instructions:
+- Answer only using information from the video.
+- If the creator explained steps, list them clearly.
+- If the user asks "what did he say about X", extract that part.
+- If the user asks for examples, provide examples mentioned in video.
+- If timeline/order matters, explain in sequence.
+- Be concise but complete.
+- If the answer is not present in the video, reply:
+  "This was not clearly mentioned in the video."
+
+Output:
+Give a clean direct answer.
+"""
+    response = model.invoke(prompt)
+    return response.content
+
+
+def translate_text(text, lang):
     try:
-        translator = GoogleTranslator(source='auto', target=target_lang)
+        translator = GoogleTranslator(source="auto", target=lang)
         return translator.translate(text)
-    except Exception as e:
-        return f"Translation error: {str(e)}"
+    except:
+        return text
 
-def create_pdf(title, summary, language):
+
+def clean_text(text):
+    return text.encode("latin-1", "ignore").decode("latin-1")
+
+
+def create_pdf(summary, chats):
     pdf = FPDF()
     pdf.add_page()
-    
-    # Set font for non-ascii languages
-    if language in ['ja', 'ko', 'zh']:
-        pdf.add_font('NotoSansJP', '', 'NotoSansJP-Regular.ttf', uni=True)
-        pdf.set_font('NotoSansJP', '', 12)
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "YouTube Chat Report", ln=True, align="C")
+    pdf.ln(8)
+
+    pdf.set_font("Arial", "", 12)
+    pdf.multi_cell(0, 8, clean_text(summary))
+    pdf.ln(6)
+
+    if chats:
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(0, 10, "Questions & Answers", ln=True)
+        pdf.ln(5)
+
+        pdf.set_font("Arial", "", 12)
+
+        for msg in chats:
+            role = msg["role"]
+            text = msg["content"]
+
+            if role == "user":
+                pdf.multi_cell(0, 8, clean_text("Q: " + text))
+            else:
+                pdf.multi_cell(0, 8, clean_text("A: " + text))
+
+            pdf.ln(2)
+
+    path = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
+    pdf.output(path)
+    return path
+
+# ==================================================
+# SESSION
+# ==================================================
+if "video_loaded" not in st.session_state:
+    st.session_state.video_loaded = False
+
+if "video_data" not in st.session_state:
+    st.session_state.video_data = ""
+
+if "summary" not in st.session_state:
+    st.session_state.summary = ""
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# ==================================================
+# SIDEBAR
+# ==================================================
+st.sidebar.title("⚙ Settings")
+
+language = st.sidebar.selectbox(
+    "Select Language",
+    ["English", "Hindi", "Spanish", "French"]
+)
+
+if st.sidebar.button("🗑 Clear Chat"):
+    st.session_state.video_loaded = False
+    st.session_state.video_data = ""
+    st.session_state.summary = ""
+    st.session_state.messages = []
+    st.rerun()
+
+# ==================================================
+# HEADER
+# ==================================================
+st.title("🎥 YouTube Chatbot")
+
+# ==================================================
+# URL INPUT
+# ==================================================
+url = st.text_input("Paste YouTube Link")
+
+if st.button("🚀 Generate Summary"):
+
+    if url.strip() == "":
+        st.warning("Please enter URL")
+        st.stop()
+
+    with st.spinner("Fetching video..."):
+        video_data = extract_video_info(url)
+
+    if "Error:" in video_data:
+        st.error(video_data)
+        st.stop()
+
+    with st.spinner("Generating summary..."):
+        summary = summarize_video(video_data)
+
+    if language != "English":
+        lang_code = {
+            "Hindi":"hi",
+            "Spanish":"es",
+            "French":"fr"
+        }[language]
+
+        summary = translate_text(summary, lang_code)
+
+    st.session_state.video_loaded = True
+    st.session_state.video_data = video_data
+    st.session_state.summary = summary
+    st.session_state.messages = []
+
+    st.session_state.messages.append({
+        "role":"assistant",
+        "content":summary
+    })
+
+    st.rerun()
+
+# ==================================================
+# CHAT HISTORY
+# ==================================================
+for msg in st.session_state.messages:
+
+    if msg["role"] == "user":
+        st.markdown(
+            f"<div class='user-box'>{msg['content']}</div>",
+            unsafe_allow_html=True
+        )
     else:
-        pdf.set_font('Arial', '', 12)
-    
-    # Add title
-    pdf.cell(0, 10, title, ln=True, align='C')
-    pdf.ln(10)
-    
-    # Ensure the summary text is encoded properly and avoid 'latin-1' encoding errors
-    pdf.multi_cell(0, 10, summary.encode('latin-1', 'ignore').decode('latin-1'))  # 'ignore' will ignore characters that can't be encoded
-    
-    # Save to temporary file
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-        pdf.output(tmp_file.name)
-        return tmp_file.name
-    
-    # Open file in UTF-8 encoding to handle special characters
-    with open('output.txt', 'w', encoding='utf-8') as f:
-        f.write("Some text with special characters: é, ü, ç")
+        st.markdown(
+            f"<div class='bot-box'>{msg['content']}</div>",
+            unsafe_allow_html=True
+        )
 
+# ==================================================
+# PDF
+# ==================================================
+if st.session_state.video_loaded:
 
-# Streamlit UI
-st.sidebar.header("Options")
-target_language = st.sidebar.selectbox("Select Translation Language", list(LANGUAGES.keys()))
+    pdf = create_pdf(
+        st.session_state.summary,
+        st.session_state.messages
+    )
 
-# Initialize the session state key for 'input'
-if 'input' not in st.session_state:
-    st.session_state['input'] = ""
+    with open(pdf, "rb") as f:
+        st.download_button(
+            "📄 Download PDF",
+            data=f,
+            file_name="youtube_chat.pdf",
+            mime="application/pdf"
+        )
 
-# Input field for user question
-input_question = st.text_input("Paste YouTube Video URL: ", key="input")
+# ==================================================
+# CHAT INPUT (BOTTOM LIKE CHATGPT)
+# ==================================================
+if st.session_state.video_loaded:
 
-# Submit button
-submit_button = st.button("Get Summary 🙋❓")
+    question = st.chat_input("Ask about this video...")
 
-# If ask button is clicked
-if submit_button and input_question:
-    # Extract video info from the provided YouTube URL
-    video_info = extract_video_info(input_question)
-    
-    if "Error" not in video_info:
-        # Get summary
-        summary_response = model.invoke([{"role": "user", "content": f"Please provide a detailed summary of this video: {video_info}"}])
-        original_summary = summary_response.content
-        
-        # Display original summary
-        st.subheader("Original Summary: 👇")
-        st.write(original_summary)
-        
-        # Translate summary if language is not English
-        if target_language != 'English':
-            translated_summary = translate_text(original_summary, LANGUAGES[target_language])
-            st.subheader(f"Translated Summary ({target_language}): 👇")
-            st.write(translated_summary)
-            
-            # Create PDF with both versions
-            pdf_path = create_pdf(
-                "YouTube Video Summary",
-                f"Original Summary:\n\n{original_summary}\n\n{target_language} Translation:\n\n{translated_summary}",
-                LANGUAGES[target_language]
+    if question:
+
+        st.session_state.messages.append({
+            "role":"user",
+            "content":question
+        })
+
+        with st.spinner("Thinking..."):
+            answer = answer_question(
+                st.session_state.video_data,
+                st.session_state.summary,
+                question
             )
-        else:
-            # Create PDF with only English version
-            pdf_path = create_pdf(
-                "YouTube Video Summary",
-                f"Summary:\n\n{original_summary}",
-                'en'
-            )
-        
-        # Add download button for PDF
-        with open(pdf_path, "rb") as pdf_file:
-            st.download_button(
-                label="Download Summary as PDF",
-                data=pdf_file,
-                file_name="video_summary.pdf",
-                mime="application/pdf"
-            )
-            
-        # Clean up temporary PDF file
-        os.unlink(pdf_path)
-    else:
-        st.warning(video_info)
-elif submit_button:
-    st.warning("Please enter a YouTube link before submitting.")
+
+        if language != "English":
+            lang_code = {
+                "Hindi":"hi",
+                "Spanish":"es",
+                "French":"fr"
+            }[language]
+
+            answer = translate_text(answer, lang_code)
+
+        st.session_state.messages.append({
+            "role":"assistant",
+            "content":answer
+        })
+
+        st.rerun()
