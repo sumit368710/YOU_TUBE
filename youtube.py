@@ -148,9 +148,44 @@ def get_video_id(url):
     return None
 
 
+# def extract_video_info(url):
+#     try:
+#         video_id = get_video_id(url)
+#         if not video_id:
+#             return "Error: Invalid URL"
+
+#         # ===== TRY TRANSCRIPT =====
+#         transcript_text = ""
+#         try:
+#             transcript = YouTubeTranscriptApi.get_transcript(video_id)
+#             transcript_text = " ".join([i["text"] for i in transcript])
+#         except:
+#             transcript_text = ""
+
+#         # ===== GET TITLE =====
+#         title = ""
+#         try:
+#             res = requests.get(
+#                 f"https://www.youtube.com/oembed?url={url}&format=json"
+#             )
+#             title = res.json().get("title", "")
+#         except:
+#             pass
+
+#         if transcript_text:
+#             return f"Title: {title}\n\nTranscript:\n{transcript_text}"
+#         elif title:
+#             return f"Title: {title}\n\nTranscript not available."
+#         else:
+#             return "Error: Could not fetch data"
+
+#     except Exception as e:
+#         return f"Error: {str(e)}"
+
 def extract_video_info(url):
     try:
         video_id = get_video_id(url)
+
         if not video_id:
             return "Error: Invalid URL"
 
@@ -162,7 +197,7 @@ def extract_video_info(url):
         except:
             transcript_text = ""
 
-        # ===== GET TITLE =====
+        # ===== ALWAYS GET TITLE =====
         title = ""
         try:
             res = requests.get(
@@ -172,12 +207,11 @@ def extract_video_info(url):
         except:
             pass
 
+        # ===== NEVER RETURN EMPTY =====
         if transcript_text:
             return f"Title: {title}\n\nTranscript:\n{transcript_text}"
-        elif title:
-            return f"Title: {title}\n\nTranscript not available."
         else:
-            return "Error: Could not fetch data"
+            return f"Title: {title}\n\nNOTE: Transcript not available."
 
     except Exception as e:
         return f"Error: {str(e)}"
@@ -209,6 +243,14 @@ STRICT RULES
 4. Do NOT include unrelated topics (e.g., Machine Learning, coding, etc.)
 5. Content must be exam-oriented (UPSC, Judiciary, CLAT)
 6. Write like a LAW PROFESSOR explaining in class
+
+7. IF transcript is available:
+→ generate detailed legal notes
+
+8. IF transcript is NOT available:
+→ generate GENERAL legal explanation based on title
+→ clearly mention it's general explanation
+→ DO NOT hallucinate specific facts
 
 ========================
 VIDEO DATA:
