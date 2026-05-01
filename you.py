@@ -161,55 +161,85 @@ def get_video_id(url):
     return None
 
 
+# def extract_video_info(url):
+#     try:
+#         ydl_opts = {
+#             "quiet": True,
+#             "extract_flat": False,
+#             "skip_download": True
+#         }
+
+#         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+#             info = ydl.extract_info(url, download=False)
+
+#         title = info.get("title", "")
+#         description = info.get("description", "")
+#         channel = info.get("uploader", "")
+#         duration = info.get("duration_string", "")
+#         views = info.get("view_count", "")
+#         upload_date = info.get("upload_date", "")
+#         tags = info.get("tags", [])
+
+#         # ===== GET TRANSCRIPT =====
+#         transcript_text = ""
+#         video_id = get_video_id(url)
+
+#         if video_id:
+#             try:
+#                 transcript = YouTubeTranscriptApi.get_transcript(video_id)
+
+#                 transcript_text = " ".join(
+#                     [item["text"] for item in transcript]
+#                 )
+
+#             except:
+#                 transcript_text = "Transcript not available."
+
+#         data = f"""
+# Title: {title}
+
+# Channel: {channel}
+
+# Duration: {duration}
+
+# Views: {views}
+
+# Upload Date: {upload_date}
+
+# Tags: {', '.join(tags[:15])}
+
+# Description:
+# {description}
+
+# Transcript:
+# {transcript_text}
+# """
+#         return data
+
+#     except Exception as e:
+#         return f"Error: {str(e)}"
+
 def extract_video_info(url):
     try:
-        ydl_opts = {
-            "quiet": True,
-            "extract_flat": False,
-            "skip_download": True
-        }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-
-        title = info.get("title", "")
-        description = info.get("description", "")
-        channel = info.get("uploader", "")
-        duration = info.get("duration_string", "")
-        views = info.get("view_count", "")
-        upload_date = info.get("upload_date", "")
-        tags = info.get("tags", [])
-
-        # ===== GET TRANSCRIPT =====
-        transcript_text = ""
         video_id = get_video_id(url)
 
-        if video_id:
-            try:
-                transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        if not video_id:
+            return "Error: Invalid YouTube URL"
 
-                transcript_text = " ".join(
-                    [item["text"] for item in transcript]
-                )
+        # ===== GET TRANSCRIPT =====
+        try:
+            transcript = YouTubeTranscriptApi.get_transcript(video_id)
 
-            except:
-                transcript_text = "Transcript not available."
+            transcript_text = " ".join(
+                [item["text"] for item in transcript]
+            )
 
+        except:
+            transcript_text = "Transcript not available."
+
+        # ===== BASIC INFO (NO yt-dlp) =====
         data = f"""
-Title: {title}
-
-Channel: {channel}
-
-Duration: {duration}
-
-Views: {views}
-
-Upload Date: {upload_date}
-
-Tags: {', '.join(tags[:15])}
-
-Description:
-{description}
+Video ID: {video_id}
 
 Transcript:
 {transcript_text}
@@ -220,114 +250,254 @@ Transcript:
         return f"Error: {str(e)}"
 
 
+# def summarize_video(video_text):
+#     prompt = f"""
+# You are an expert teacher, examiner, and educational content writer.
+
+# Convert the given YouTube video topic/content into PROFESSIONAL STUDY NOTES with BEAUTIFUL formatting.
+
+# Video Content:
+# {video_text}
+
+# Instructions:
+# - If transcript exists, use it fully.
+# - If transcript not available, infer intelligently from topic/title.
+# - Use simple language.
+# - Make content detailed, exam-ready, and professional.
+# - VERY IMPORTANT: Questions and answers must be on separate lines.
+# - Never write question and answer in same line.
+# - Use proper spacing.
+# - Use markdown formatting.
+
+# Use this exact format:
+
+# # 1. Chapter / Topic Introduction
+# (Paragraph explanation)
+
+# # 2. Full Detailed Notes
+# (Headings + subheadings + bullet points)
+
+# # 3. Important Definitions
+# - Term:
+#   Definition:
+
+# # 4. Important Points for Exam
+# - Point 1
+# - Point 2
+
+# # 5. Short Questions with Answers
+
+# ## Q1. What is ...?
+# **Answer:**
+# (write answer below)
+
+# ## Q2. Who is ...?
+# **Answer:**
+# (write answer below)
+
+# (Create minimum 5)
+
+# # 6. Long Questions with Answers
+
+# ## Q1. Explain ...
+# **Answer:**
+# (detailed answer below)
+
+# (Create minimum 5)
+
+# # 7. Multiple Choice Questions (MCQs)
+
+# ## Q1. ....
+# a) ...
+# b) ...
+# c) ...
+# d) ...
+
+# **Correct Answer:** b)
+
+# (Create minimum 10)
+
+# # 8. True / False
+
+# 1. Statement here  
+# **Answer:** True
+
+# (Create minimum 5)
+
+# # 9. One Word Answers
+
+# 1. Question:
+# **Answer:** ....
+
+# (Create minimum 5)
+
+# # 10. Revision Summary
+# (Bullets)
+
+# # 11. Real Life Importance / Applications
+# (Paragraph)
+
+# # 12. Final Conclusion
+# (Paragraph)
+
+# Rules:
+# - Separate every question and answer clearly.
+# - Use headings.
+# - Add spacing between sections.
+# - Make UI look clean when shown in Streamlit.
+# - No one-line mixed answers.
+
+# Now generate professional formatted output.
+# """
+#     response = model.invoke(prompt)
+#     return response.content
+
+
+# def answer_question(video_text, summary, question):
+#     prompt = f"""
+# You are an expert assistant answering questions about a YouTube video.
+
+# Use ONLY the provided video transcript, metadata, and summary.
+
+# VIDEO CONTENT:
+# {video_text}
+
+# VIDEO SUMMARY:
+# {summary}
+
+# USER QUESTION:
+# {question}
+
+# Instructions:
+# - Answer only using information from the video.
+# - If the creator explained steps, list them clearly.
+# - If the user asks "what did he say about X", extract that part.
+# - If the user asks for examples, provide examples mentioned in video.
+# - If timeline/order matters, explain in sequence.
+# - Be concise but complete.
+# - If the answer is not present in the video, reply:
+#   "This was not clearly mentioned in the video."
+
+# Output:
+# Give a clean direct answer.
+# """
+#     response = model.invoke(prompt)
+#     return response.content
+
 def summarize_video(video_text):
+
+    # 🚫 HARD CHECK (prevent hallucination)
+    if not video_text or len(video_text.strip()) < 50 or "Transcript not available" in video_text:
+        return "❌ Transcript not available for this video. Please try another video."
+
     prompt = f"""
-You are an expert teacher, examiner, and educational content writer.
+You are a highly experienced TEACHER who explains concepts clearly to students.
 
-Convert the given YouTube video topic/content into PROFESSIONAL STUDY NOTES with BEAUTIFUL formatting.
+Your job is to convert the YouTube video content into structured STUDY NOTES.
 
-Video Content:
+STRICT RULES (VERY IMPORTANT):
+- Use ONLY the given video content
+- DO NOT guess or add outside knowledge
+- DO NOT change topic
+- If something is unclear → skip it
+- Explain like a teacher teaching in classroom
+- Keep explanations simple, clear, and structured
+
+VIDEO CONTENT:
 {video_text}
 
-Instructions:
-- If transcript exists, use it fully.
-- If transcript not available, infer intelligently from topic/title.
-- Use simple language.
-- Make content detailed, exam-ready, and professional.
-- VERY IMPORTANT: Questions and answers must be on separate lines.
-- Never write question and answer in same line.
-- Use proper spacing.
-- Use markdown formatting.
-
-Use this exact format:
+OUTPUT FORMAT:
 
 # 1. Chapter / Topic Introduction
-(Paragraph explanation)
+Explain what this video is about in simple terms like a teacher introducing a topic.
 
 # 2. Full Detailed Notes
-(Headings + subheadings + bullet points)
+- Use headings and subheadings
+- Break into concepts
+- Explain step-by-step like teaching students
+- Use bullet points wherever needed
 
 # 3. Important Definitions
 - Term:
   Definition:
 
 # 4. Important Points for Exam
-- Point 1
-- Point 2
+- Key takeaway points
+- Focus on what students should remember
 
 # 5. Short Questions with Answers
 
-## Q1. What is ...?
+## Q1. ...
 **Answer:**
-(write answer below)
+(clear explanation below)
 
-## Q2. Who is ...?
-**Answer:**
-(write answer below)
-
-(Create minimum 5)
+(Create at least 5)
 
 # 6. Long Questions with Answers
 
-## Q1. Explain ...
+## Q1. ...
 **Answer:**
-(detailed answer below)
+(detailed explanation like exam answer)
 
-(Create minimum 5)
+(Create at least 5)
 
 # 7. Multiple Choice Questions (MCQs)
 
-## Q1. ....
+## Q1. ...
 a) ...
 b) ...
 c) ...
 d) ...
 
-**Correct Answer:** b)
+**Correct Answer:** ...
 
-(Create minimum 10)
+(Create at least 5)
 
 # 8. True / False
 
-1. Statement here  
-**Answer:** True
+1. Statement  
+**Answer:** True/False
 
-(Create minimum 5)
+(Create at least 5)
 
 # 9. One Word Answers
 
 1. Question:
-**Answer:** ....
+**Answer:** ...
 
-(Create minimum 5)
+(Create at least 5)
 
 # 10. Revision Summary
-(Bullets)
+- Short bullet revision points
 
 # 11. Real Life Importance / Applications
-(Paragraph)
+Explain how this topic is useful in real life.
 
 # 12. Final Conclusion
-(Paragraph)
+Summarize like a teacher concluding the lecture.
 
-Rules:
-- Separate every question and answer clearly.
-- Use headings.
-- Add spacing between sections.
-- Make UI look clean when shown in Streamlit.
-- No one-line mixed answers.
+FINAL INSTRUCTION:
+- Maintain clean formatting
+- Separate every question and answer
+- No mixing in one line
+- Make it look like proper study notes
 
-Now generate professional formatted output.
+Now generate the output.
 """
+
     response = model.invoke(prompt)
     return response.content
 
-
 def answer_question(video_text, summary, question):
-    prompt = f"""
-You are an expert assistant answering questions about a YouTube video.
 
-Use ONLY the provided video transcript, metadata, and summary.
+    prompt = f"""
+You are a teacher answering student questions based ONLY on a YouTube video.
+
+STRICT RULES:
+- Answer ONLY from given video content
+- DO NOT guess
+- DO NOT add external knowledge
+- If not found → say clearly
 
 VIDEO CONTENT:
 {video_text}
@@ -335,22 +505,20 @@ VIDEO CONTENT:
 VIDEO SUMMARY:
 {summary}
 
-USER QUESTION:
+STUDENT QUESTION:
 {question}
 
-Instructions:
-- Answer only using information from the video.
-- If the creator explained steps, list them clearly.
-- If the user asks "what did he say about X", extract that part.
-- If the user asks for examples, provide examples mentioned in video.
-- If timeline/order matters, explain in sequence.
-- Be concise but complete.
-- If the answer is not present in the video, reply:
+INSTRUCTIONS:
+- Answer clearly like a teacher
+- If explanation needed → explain step-by-step
+- Keep it simple and understandable
+- If answer not present in video:
   "This was not clearly mentioned in the video."
 
-Output:
-Give a clean direct answer.
+OUTPUT:
+Give a clear, structured answer.
 """
+
     response = model.invoke(prompt)
     return response.content
 
